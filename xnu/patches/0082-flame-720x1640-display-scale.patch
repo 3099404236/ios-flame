@@ -1,0 +1,25 @@
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -355,6 +355,21 @@
+ 		if (dx < 0 || dy < 0) {
+ 			dx = dy = 0;
+ 		}
++		/* FLAME (720x1640): scale full-screen 1125x2436 iPhone X surfaces to fit the panel. */
++		if (src != 0 && bpe == 4 && s->elementWidth == 1 && s->elementHeight == 1 &&
++		    s->memory != NULL && s->width == fLogicalW && s->height == fLogicalH &&
++		    (fWidth != fLogicalW || fHeight != fLogicalH) &&
++		    (uint64_t)s->offset + (uint64_t)(fLogicalH - 1) * s->bytesPerRow + (uint64_t)fLogicalW * 4 <= s->memory->getLength()) {
++			for (uint32_t py = 0; py < fHeight; py++) {
++				uint32_t ly = (py * fLogicalH) / fHeight;
++				const uint32_t *srow = (const uint32_t *)(src + s->offset + (uint64_t)ly * s->bytesPerRow);
++				uint32_t *drow = (uint32_t *)(fPixels + (uint64_t)py * fRowBytes);
++				for (uint32_t px = 0; px < fWidth; px++) {
++					drow[px] = srow[(px * fLogicalW) / fWidth];
++				}
++			}
++			s->release();
++			continue;
++		}
+ 		/* Logical (presented) display coordinates -> panel coordinates. */
+ 		dx -= fOffX;
+ 		dy -= fOffY;
