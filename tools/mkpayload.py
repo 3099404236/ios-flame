@@ -147,8 +147,8 @@ def build(kernel_path, adt_path, cmdline, ramdisk_path=None):
     segs = [s for s in m['segs'] if s['vmsize']]
     text = m['segs'][0]
     assert text['name'] == '__TEXT' and text['fileoff'] == 0
-    # virt_base: 32MB (16K-granule L2 block) below the lowest segment, so start.s's
-    # block mapping begins at or below every kernel segment at phys_base.
+    # virt_base: 32MB (16K-granule L2 block) aligned below the lowest segment
+    # (0xfffffe0006000000 for xnu-8796 SWEET, since start.s masks L2 blocks with ~0x1ffffff).
     min_va = min(s['vmaddr'] for s in segs)
     virt_base = min_va & ~(0x2000000 - 1)
     kernel_end = max(s['vmaddr'] + s['vmsize'] for s in segs)

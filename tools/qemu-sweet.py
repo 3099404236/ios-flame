@@ -58,16 +58,38 @@ def check_qemu_dependency(cpu='cortex-a76'):
     return True
 
 
+def find_macho_symbol(kernel_path, sym_name=b'_iso_font'):
+    """Return list of symbol VAs matching sym_name from a 64-bit Mach-O LC_SYMTAB."""
+    buf = open(kernel_path, 'rb').read()
+    magic, _, _, _, ncmds, _, _, _ = struct.unpack_from('<8I', buf, 0)
+    if magic != 0xfeedfacf:
+        return []
+    off = 32
+    matches = []
+    for _ in range(ncmds):
+        cmd, cmdsize = struct.unpack_from('<II', buf, off)
+        if cmd == 0x2:  # LC_SYMTAB
+            symoff, nsyms, stroff, strsize = struct.unpack_from('<4I', buf, off + 8)
+            strtab = buf[stroff:stroff + strsize]
+            target = b'\x00' + sym_name + b'\x00'
+            idx = 0
+            valid_strx = set()
+            while True:
+                pos = strtab.find(target, idx)
+                if pos < 0:
+                    break
+                valid_strx.add(pos + 1)
+                idx = pos + 1
+            for i in range(nsyms):
+                n_strx, n_type, _, _, n_value = struct.unpack_from('<IBBHQ', buf, symoff + i * 16)
+                if n_strx in valid_strx and (n_type & 0x0e) != 0 and n_value != 0:
+                    matches.append(n_value)
+        off += cmdsize
+    return matches
+
+
 def check_kernel_tools(kernel_path):
-    """Verify llvm-nm is available when --kernel is specified."""
-    if not shutil.which('llvm-nm'):
-        print('[!] Error: llvm-nm not found in PATH, required for --kernel font extraction.', file=sys.stderr)
-        print('    Install instructions:', file=sys.stderr)
-        print('      Arch Linux:    sudo pacman -S llvm', file=sys.stderr)
-        print('      Ubuntu/Debian: sudo apt install llvm', file=sys.stderr)
-        print('      Fedora:         sudo dnf install llvm', file=sys.stderr)
-        print('      macOS:          brew install llvm', file=sys.stderr)
-        return False
+    """Verify kernel file exists when --kernel is specified."""
     if not os.path.isfile(kernel_path):
         print(f'[!] Error: kernel file does not exist: {kernel_path}', file=sys.stderr)
         return False
@@ -254,9 +276,7 @@ def main():
     payload = open(a.payload, 'rb').read()
     font = None
     if a.kernel:
-        symbols = subprocess.check_output(['llvm-nm', '--defined-only', a.kernel], text=True)
-        fonts = [int(line.split()[0], 16) for line in symbols.splitlines()
-                 if line.split()[-1:] == ['_iso_font']]
+        fonts = find_macho_symbol(a.kernel, b'_iso_font')
         if len(fonts) != 1:
             ap.error('kernel must contain exactly one _iso_font symbol')
         font = payload_data(payload, fonts[0], 256 * 16)
